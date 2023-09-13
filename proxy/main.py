@@ -1,11 +1,11 @@
-import secrets
+import secrets, json
 import traceback
-import proxy.llm as llm
-from proxy.utils import getenv
+import llm as llm
+from utils import getenv
 
 from litellm import BudgetManager
 
-budget_manager = BudgetManager(project_name="fastrepl_proxy", client_type="hosted")
+budget_manager = BudgetManager(project_name="superflows_proxy", client_type="hosted")
 
 from fastapi import FastAPI, Request, Response, status, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
@@ -25,8 +25,8 @@ def user_api_key_auth(api_key: str = Depends(oauth2_scheme)):
         )
 
 
-def fastrepl_auth(api_key: str = Depends(oauth2_scheme)):
-    if api_key != getenv("FASTREPL_PROXY_ADMIN_KEY", ""):
+def superflowsai_auth(api_key: str = Depends(oauth2_scheme)):
+    if api_key != getenv("SUPERFLOWSAI_PROXY_ADMIN_KEY", ""):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "invalid admin key"},
@@ -63,6 +63,9 @@ async def report_current(request: Request):
     key = request.headers.get("Authorization").replace("Bearer ", "")  # type: ignore
     return budget_manager.get_model_cost(key)
 
+def data_generator(response):
+    for chunk in response:
+        yield f"data: {json.dumps(chunk)}\n\n"
 
 @app.post("/chat/completions", dependencies=[Depends(user_api_key_auth)])
 async def completion(request: Request):
@@ -74,13 +77,18 @@ async def completion(request: Request):
     data["budget_manager"] = budget_manager
 
     for k, v in request.headers.items():
-        if k.startswith("X-FASTREPL"):
+        if k.startswith("X-SUPERFLOWSAI"):
             data["cache_params"][k] = v
+    
+    response = llm.completion(**data)
+
+    if 'stream' in data and data['stream'] == True: # use generate_responses to stream responses
+        return Response(data_generator(response), mimetype='text/event-stream')
 
     return llm.completion(**data)
 
 
-@app.post("/key/new", dependencies=[Depends(fastrepl_auth)])
+@app.post("/key/new", dependencies=[Depends(superflowsai_auth)])
 async def generate_key(request: Request):
     try:
         data = await request.json()
@@ -90,7 +98,7 @@ async def generate_key(request: Request):
 
     total_budget = data["total_budget"]
 
-    api_key = f"sk-fastrepl-{secrets.token_urlsafe(16)}"
+    api_key = f"sk-superflowsai-{secrets.token_urlsafe(16)}"
 
     try:
         budget_manager.create_budget(

@@ -4,7 +4,7 @@ import threading
 
 from fastapi import HTTPException
 
-from proxy.utils import getenv
+from utils import getenv
 
 import backoff
 import openai.error
